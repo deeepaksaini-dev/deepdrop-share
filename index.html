@@ -1,113 +1,181 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>DeepDrop Share — P2P File Transfer</title>
+  <title>DeepDrop Share PRO</title>
 
-  <!-- Fonts & icons -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Poppins:wght@600;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="script.css">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&family=Inter:wght@400;600&display=swap" rel="stylesheet">
 
-  <!-- Meta for nice mobile theme -->
-  <meta name="theme-color" content="#0f172a">
+  <style>
+    :root {
+      --bg-1: #05030a;
+      --bg-2: #081226;
+      --muted: rgba(230,238,246,0.55);
+      --accent-a: #7c3aed;
+      --accent-b: #06b6d4;
+      --accent-c: #ff7a59;
+      font-family: 'Inter', 'Poppins', sans-serif;
+    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    body {
+      min-height:100vh;
+      background: radial-gradient(800px 400px at 10% 20%, rgba(124,58,237,0.08), transparent),
+                  radial-gradient(700px 350px at 90% 80%, rgba(6,182,212,0.06), transparent),
+                  linear-gradient(180deg,var(--bg-1),var(--bg-2));
+      color:#eaf2ff;
+      display:flex;
+      justify-content:center;
+      align-items:flex-start;
+      padding:32px 16px;
+    }
+    .container {
+      width:100%;
+      max-width:1180px;
+      display:flex;
+      flex-direction:row;
+      gap:28px;
+      flex-wrap:wrap;
+    }
+    .hero, .right-panel {
+      flex:1 1 480px;
+      background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));
+      border:1px solid rgba(255,255,255,0.03);
+      border-radius:20px;
+      padding:24px;
+      box-shadow:0 20px 60px rgba(2,6,23,0.6);
+      backdrop-filter:blur(10px);
+    }
+    .brand {
+      display:flex;align-items:center;gap:16px;margin-bottom:16px;
+    }
+    .logo-bubble {
+      width:60px;height:60px;border-radius:16px;
+      background:linear-gradient(135deg,var(--accent-a),var(--accent-b));
+      display:flex;align-items:center;justify-content:center;
+      font-weight:900;font-size:24px;box-shadow:0 8px 30px rgba(124,58,237,0.25);
+    }
+    .title {font-size:1.8rem;font-weight:900;}
+    .subtitle {color:var(--muted);font-size:0.95rem;}
+
+    .drop-zone {
+      margin-top:20px;
+      padding:28px;
+      border-radius:18px;
+      border:1px dashed rgba(255,255,255,0.05);
+      background:rgba(255,255,255,0.03);
+      text-align:center;
+      transition:all .2s ease;
+    }
+    .drop-zone:hover {
+      border-color:rgba(124,58,237,0.5);
+      box-shadow:0 20px 50px rgba(124,58,237,0.2);
+      transform:translateY(-4px);
+    }
+    .drop-zone h2 {font-size:1.3rem;margin-bottom:6px;}
+    .drop-zone p {color:var(--muted);font-size:0.95rem;margin-bottom:16px;}
+    .drop-actions {
+      display:flex;gap:12px;justify-content:center;flex-wrap:wrap;
+    }
+    .btn {
+      padding:10px 16px;
+      border:none;border-radius:12px;
+      font-weight:700;cursor:pointer;
+      background:linear-gradient(90deg,var(--accent-a),var(--accent-b));
+      color:#fff;box-shadow:0 6px 20px rgba(124,58,237,0.25);
+      transition:transform .12s;
+    }
+    .btn:hover {transform:translateY(-3px);}
+    .files-area {margin-top:18px;display:flex;flex-direction:column;gap:10px;}
+    .file-card {
+      padding:12px;border-radius:12px;
+      background:rgba(255,255,255,0.03);
+      display:flex;justify-content:space-between;align-items:center;
+      border:1px solid rgba(255,255,255,0.02);
+      flex-wrap:wrap;
+      gap:10px;
+    }
+    .file-info .name {font-weight:700;}
+    .small-muted {font-size:0.85rem;color:var(--muted);}
+    .progress-track {width:200px;height:8px;background:rgba(255,255,255,0.05);border-radius:6px;overflow:hidden;margin-top:6px;}
+    .progress-bar {height:100%;background:linear-gradient(90deg,var(--accent-b),var(--accent-c));width:0%;transition:width .2s;}
+
+    .right-panel .card {margin-bottom:18px;}
+    .card h3 {font-size:1.1rem;margin-bottom:8px;}
+    .input {width:100%;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.05);color:inherit;margin-bottom:10px;}
+    .chat-log {height:120px;overflow:auto;background:rgba(0,0,0,0.2);padding:8px;border-radius:8px;color:var(--muted);}
+    .chat-input-row {display:flex;gap:8px;}
+    .qr-panel {margin-top:10px;text-align:center;display:none;}
+    .room-id {font-weight:800;margin-top:8px;}
+    body.light {
+      background: linear-gradient(180deg,#f8faff,#e8eef7);
+      color:#0b1220;
+    }
+  </style>
 </head>
 <body>
-  <main class="shell">
+  <div class="container">
 
-    <!-- NAV / TOP -->
-    <nav class="nav">
+    <!-- LEFT: Hero -->
+    <section class="hero">
       <div class="brand">
-        <div class="logo">⤓</div>
-        <div class="brand-text">
+        <div class="logo-bubble">⤓</div>
+        <div>
           <div class="title">DeepDrop Share</div>
-          <div class="subtitle">Fast • Secure • Peer-to-Peer</div>
+          <div class="subtitle">Instant. Private. Peer-to-Peer.</div>
         </div>
       </div>
 
-      <div class="nav-actions">
-        <div class="room-box">
-          <div id="roomId" class="room-id">—</div>
-          <button id="copyBtn" class="btn ghost">Copy</button>
-          <button id="qrBtn" class="btn ghost">QR</button>
+      <div id="dropArea" class="drop-zone">
+        <h2>Drop files here</h2>
+        <p>Or click to select. Files stream directly to peer.</p>
+        <div class="drop-actions">
+          <button id="pickFile" class="btn">Choose Files</button>
+          <button id="sendBtn" class="btn" disabled>Send</button>
         </div>
+        <div id="filesArea" class="files-area"></div>
       </div>
-    </nav>
-
-    <!-- MAIN GRID -->
-    <section class="layout">
-
-      <!-- LEFT: Hero + Drop -->
-      <section class="left">
-        <div class="hero">
-          <h1>Share files instantly — no cloud, no uploads</h1>
-          <p class="lead">Peer-to-peer transfer with WebRTC. Create a room, share QR or link, receiver downloads directly.</p>
-
-          <div id="dropArea" class="dropcard">
-            <div class="drop-inner">
-              <svg class="cloud-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19 18H6a4 4 0 0 1 0-8 6 6 0 1 1 12 1.5A3.5 3.5 0 0 1 19 18z"/></svg>
-              <h2>Drop files here</h2>
-              <p class="muted">Or click to pick. Files stream directly to peer — private & fast.</p>
-
-              <input id="fileInput" type="file" hidden>
-              <div class="drop-actions">
-                <button id="pickFile" class="btn primary large">Choose file</button>
-                <button id="sendBtn" class="btn accent large" disabled>Send</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="tips">
-            <div>Tip: Create a room and scan the QR on the right to join from another device.</div>
-          </div>
-        </div>
-      </section>
-
-      <!-- RIGHT: Controls + QR + Activity -->
-      <aside class="right">
-
-        <!-- Room controls -->
-        <div class="card control-card">
-          <div class="control-row">
-            <input id="roomInput" class="input" placeholder="Enter or create room id" />
-            <div class="control-buttons">
-              <button id="createBtn" class="btn outline">Create</button>
-              <button id="joinBtn" class="btn outline">Join</button>
-            </div>
-          </div>
-
-          <div id="qrPanel" class="qr-panel hidden">
-            <div class="qr-title">Scan to join</div>
-            <div id="qrcode" class="qrcode-box" aria-hidden="false"></div>
-            <div class="qr-link">Or share: <span id="roomLink" class="mono"></span></div>
-          </div>
-        </div>
-
-        <!-- Receive list -->
-        <div class="card receive-card">
-          <div class="card-head">📥 Received</div>
-          <div id="receiveList" class="receive-list">
-            <!-- downloaded file anchors will appear -->
-          </div>
-        </div>
-
-        <!-- Activity feed -->
-        <div class="card activity-card">
-          <div class="card-head">Activity</div>
-          <div id="logList" class="activity-list">
-            <!-- logs -->
-          </div>
-        </div>
-
-        <!-- Footer credit -->
-        <div class="credit">
-          <div>Made with ❤️ by <strong>Deepak Kumar Saini</strong></div>
-          <small class="muted">WebRTC • Socket.io • No server storage</small>
-        </div>
-
-      </aside>
     </section>
-  </main>
+
+    <!-- RIGHT PANEL -->
+    <aside class="right-panel">
+      <div class="card">
+        <h3>Room Control</h3>
+        <input id="roomInput" class="input" placeholder="Room ID">
+        <input id="roomPassword" class="input" placeholder="Optional password">
+        <div style="display:flex;gap:8px;">
+          <button id="createBtn" class="btn">Create</button>
+          <button id="joinBtn" class="btn">Join</button>
+          <button id="themeToggle" class="btn">Theme</button>
+        </div>
+        <div id="qrPanel" class="qr-panel">
+          <div id="qrcode"></div>
+          <div id="roomLink" style="font-size:0.8rem;word-break:break-all;margin-top:8px;"></div>
+        </div>
+        <div class="room-id" id="roomId">—</div>
+      </div>
+
+      <div class="card">
+        <h3>Chat</h3>
+        <div id="chatLog" class="chat-log">No messages</div>
+        <div class="chat-input-row">
+          <input id="chatInput" class="input" placeholder="Type message...">
+          <button id="chatSend" class="btn">Send</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Activity Log</h3>
+        <div id="logList" class="chat-log"></div>
+      </div>
+
+      <div class="card">
+        <h3>Received Files</h3>
+        <div id="receiveList" class="files-area"></div>
+      </div>
+    </aside>
+
+  </div>
 
   <!-- Scripts -->
   <script src="/socket.io/socket.io.js"></script>
@@ -115,4 +183,3 @@
   <script src="app.js"></script>
 </body>
 </html>
-

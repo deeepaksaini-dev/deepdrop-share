@@ -1,268 +1,221 @@
-// app.js — DeepDrop Share
-// ✨ Professional P2P File Transfer via WebRTC + Socket.io + Auto Connect
-// 👨‍💻 Built by Deepak Kumar Saini
-
-/* ========== GLOBAL SETUP ========== */
+// ===== GLOBALS =====
 const socket = io();
-let pc = null;
-let dataChannel = null;
-let currentRoom = null;
+let pc, dataChannel;
+let roomId = null, isCreator = false;
+let filesQueue = [], receiveBuffer = {};
 
-const config = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-};
-
-/* ========== UI ELEMENTS ========== */
+// UI refs
 const roomInput = document.getElementById("roomInput");
+const roomIdBox = document.getElementById("roomId");
 const createBtn = document.getElementById("createBtn");
 const joinBtn = document.getElementById("joinBtn");
-const roomIdEl = document.getElementById("roomId");
-const copyBtn = document.getElementById("copyBtn");
-const qrBtn = document.getElementById("qrBtn");
-const qrPanel = document.getElementById("qrPanel");
-const roomLinkEl = document.getElementById("roomLink");
-
-const fileInput = document.getElementById("fileInput");
-const pickFile = document.getElementById("pickFile");
+const pickFileBtn = document.getElementById("pickFile");
 const sendBtn = document.getElementById("sendBtn");
+const fileInput = document.getElementById("fileInput") || (() => {
+  let i = document.createElement("input");
+  i.type = "file"; i.multiple = true; i.style.display = "none";
+  document.body.appendChild(i); return i;
+})();
+const filesArea = document.getElementById("filesArea");
 const dropArea = document.getElementById("dropArea");
-
-const receiveList = document.getElementById("receiveList");
+const chatInput = document.getElementById("chatInput");
+const chatSend = document.getElementById("chatSend");
+const chatLog = document.getElementById("chatLog");
 const logList = document.getElementById("logList");
+const qrPanel = document.getElementById("qrPanel");
+const qrcodeBox = document.getElementById("qrcode");
+const roomLink = document.getElementById("roomLink");
+const themeToggle = document.getElementById("themeToggle");
 
-/* ========== LOG FUNCTION ========== */
-function log(msg) {
-  const item = document.createElement("div");
-  item.className = "item";
-  item.textContent = msg;
-  logList.appendChild(item);
-  logList.scrollTop = logList.scrollHeight;
-  console.log(msg);
-}
-
-/* ========== ROOM CREATION / JOIN ========== */
+// ===== ROOM JOIN =====
 createBtn.onclick = () => {
-  const id = Math.random().toString(36).substring(2, 9);
-  roomInput.value = id;
+  const id = roomInput.value || Math.random().toString(36).substr(2, 6);
+  roomId = id;
+  isCreator = true;
   joinRoom(id);
 };
-
 joinBtn.onclick = () => {
   const id = roomInput.value.trim();
-  if (!id) return alert("Please enter a room ID");
+  if (!id) return alert("Enter room id");
+  roomId = id;
   joinRoom(id);
 };
 
+// Auto-join by link
+const p = new URLSearchParams(location.search);
+if (p.get("room")) {
+  roomId = p.get("room");
+  joinRoom(roomId);
+}
+
+// ===== SOCKET =====
 function joinRoom(id) {
-  currentRoom = id;
   socket.emit("create-or-join", id);
-  roomIdEl.textContent = id;
-  log(`🧠 Joined room: ${id}`);
-  generateQR(id);
+  roomIdBox.textContent = id;
+  showRoomLink(id);
+  initPeer();
 }
-
-/* ========== COPY ROOM ID ========== */
-copyBtn.onclick = async () => {
-  if (!currentRoom) return;
-  await navigator.clipboard.writeText(currentRoom);
-  log("📋 Room ID copied!");
-};
-
-/* ========== GENERATE QR ========== */
-function generateQR(room) {
-  const link = `${window.location.origin}?room=${room}&auto=1`;
-  roomLinkEl.textContent = link;
-  qrPanel.classList.remove("hidden");
-  document.getElementById("qrcode").innerHTML = "";
-  new QRCode(document.getElementById("qrcode"), {
-    text: link,
-    width: 150,
-    height: 150,
-    colorDark: "#000000",
-    colorLight: "#ffffff",
-  });
-  log("📱 QR ready — scan to auto-join!");
-}
-
-qrBtn.onclick = () => {
-  if (!currentRoom) return alert("Create or join a room first!");
-  generateQR(currentRoom);
-};
-
-/* ========== AUTO JOIN FROM URL ========== */
-window.addEventListener("DOMContentLoaded", () => {
-  const params = new URLSearchParams(window.location.search);
-  const room = params.get("room");
-  const auto = params.get("auto");
-  if (room) {
-    roomInput.value = room;
-    joinRoom(room);
-    if (auto) log("🤝 Auto joining room via QR...");
+socket.on("room-members", m => logActivity(`👥 Members: ${m.length}`));
+socket.on("signal", async data => {
+  if (data.offer && !isCreator) {
+    await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+    const ans = await pc.createAnswer();
+    await pc.setLocalDescription(ans);
+    socket.emit("signal", { to: roomId, answer: ans });
+  } else if (data.answer && isCreator) {
+    await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+  } else if (data.candidate) {
+    await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
   }
 });
 
-/* ========== SOCKET SIGNALING ========== */
-socket.on("room-members", (members) => {
-  log(`👥 Room members: ${members.length}`);
-  if (members.length > 0) startAsCaller(members[0]);
-  else startAsReceiver();
-});
-
-socket.on("signal", async (data) => {
-  const { from, signal } = data;
-  if (!pc) startAsReceiver(from);
-
-  if (signal.type === "offer") {
-    await pc.setRemoteDescription(new RTCSessionDescription(signal));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    socket.emit("signal", { to: from, from: socket.id, signal: pc.localDescription });
-  } else if (signal.type === "answer") {
-    await pc.setRemoteDescription(new RTCSessionDescription(signal));
-  } else if (signal.candidate) {
-    try {
-      await pc.addIceCandidate(signal);
-    } catch (e) {
-      console.warn("ICE error:", e);
-    }
-  }
-});
-
-/* ========== PEER CONNECTION ========== */
-function startAsCaller(target) {
-  setupPeer(target, true);
-}
-function startAsReceiver(target) {
-  setupPeer(target, false);
-}
-
-function setupPeer(targetId, isCaller) {
-  pc = new RTCPeerConnection(config);
-
-  pc.onicecandidate = (e) => {
-    if (e.candidate && targetId) {
-      socket.emit("signal", { to: targetId, from: socket.id, signal: e.candidate });
-    }
-  };
-
-  pc.ondatachannel = (e) => setupDataChannel(e.channel);
-
-  if (isCaller) {
-    dataChannel = pc.createDataChannel("file");
-    setupDataChannel(dataChannel);
-    createOffer(targetId);
+// ===== PEER =====
+function initPeer() {
+  pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+  dataChannel = pc.createDataChannel("channel");
+  setupDC(dataChannel);
+  pc.ondatachannel = e => setupDC(e.channel);
+  pc.onicecandidate = e => e.candidate && socket.emit("signal", { to: roomId, candidate: e.candidate });
+  if (isCreator) {
+    pc.createOffer().then(o => {
+      pc.setLocalDescription(o);
+      socket.emit("signal", { to: roomId, offer: o });
+    });
   }
 }
 
-async function createOffer(targetId) {
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  socket.emit("signal", { to: targetId, from: socket.id, signal: pc.localDescription });
+function setupDC(dc) {
+  dc.onopen = () => logActivity("📡 Connected");
+  dc.onmessage = e => handleMsg(JSON.parse(e.data));
 }
 
-/* ========== DATA CHANNEL ========== */
-function setupDataChannel(dc) {
-  dataChannel = dc;
-  dataChannel.binaryType = "arraybuffer";
+// ===== FILE SELECT =====
+pickFileBtn.onclick = () => fileInput.click();
+fileInput.onchange = e => addFiles(e.target.files);
 
-  dataChannel.onopen = () => {
-    log("✅ Connection established! Ready to transfer.");
-    sendBtn.disabled = false;
-  };
-
-  dataChannel.onclose = () => {
-    log("❌ Connection closed");
-    sendBtn.disabled = true;
-  };
-
-  let fileMeta = null;
-  let buffer = [];
-  let received = 0;
-
-  dataChannel.onmessage = (e) => {
-    if (typeof e.data === "string") {
-      const msg = JSON.parse(e.data);
-      if (msg.type === "meta") {
-        fileMeta = msg.meta;
-        buffer = [];
-        received = 0;
-        log(`⬇️ Receiving: ${fileMeta.name} (${(fileMeta.size / 1024 / 1024).toFixed(2)} MB)`);
-      } else if (msg.type === "done") {
-        const blob = new Blob(buffer);
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = fileMeta.name;
-        link.textContent = `⬇️ Download ${fileMeta.name}`;
-        link.className = "btn accent";
-        receiveList.appendChild(link);
-        log("✅ File received successfully!");
-      }
-    } else {
-      buffer.push(e.data);
-      received += e.data.byteLength;
-      const pct = ((received / fileMeta.size) * 100).toFixed(1);
-      log(`📥 Receiving... ${pct}%`);
-    }
-  };
-}
-
-/* ========== SEND FILE ========== */
-sendBtn.onclick = async () => {
-  const file = fileInput.files[0];
-  if (!file) return alert("Select a file first");
-  if (!dataChannel || dataChannel.readyState !== "open") return alert("Connection not ready");
-
-  log(`📤 Sending: ${file.name}`);
-  dataChannel.send(JSON.stringify({ type: "meta", meta: { name: file.name, size: file.size } }));
-
-  const stream = file.stream();
-  const reader = stream.getReader();
-  let sent = 0;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    dataChannel.send(value);
-    sent += value.byteLength;
-    const pct = ((sent / file.size) * 100).toFixed(1);
-    log(`📤 Uploading... ${pct}%`);
-    while (dataChannel.bufferedAmount > 256 * 1024) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-  }
-
-  dataChannel.send(JSON.stringify({ type: "done" }));
-  log("✅ File sent!");
+dropArea.ondragover = e => { e.preventDefault(); dropArea.classList.add("hover"); };
+dropArea.ondragleave = () => dropArea.classList.remove("hover");
+dropArea.ondrop = e => {
+  e.preventDefault(); dropArea.classList.remove("hover");
+  addFiles(e.dataTransfer.files);
 };
 
-/* ========== FILE PICKER & DRAG-DROP ========== */
-pickFile.onclick = () => fileInput.click();
-
-fileInput.onchange = () => {
-  if (fileInput.files.length) {
-    log(`📁 Selected: ${fileInput.files[0].name}`);
-    sendBtn.disabled = false;
+function addFiles(list) {
+  for (let f of list) {
+    filesQueue.push(f);
+    makeFileCard(f);
   }
+  if (filesQueue.length) sendBtn.disabled = false;
+}
+function makeFileCard(f) {
+  const c = document.createElement("div");
+  c.className = "file-card";
+  c.innerHTML = `
+    <div class="file-left">
+      <div class="file-thumb">${f.name.split('.').pop().toUpperCase()}</div>
+      <div class="file-info"><div class="name">${f.name}</div><div class="small-muted">${(f.size/1048576).toFixed(2)} MB</div></div>
+    </div>
+    <div class="progress-track"><div class="progress-bar" id="pb-${f.name}"></div></div>`;
+  filesArea.appendChild(c);
+}
+sendBtn.onclick = () => {
+  filesQueue.forEach(f => sendFile(f));
+  filesQueue = []; sendBtn.disabled = true;
 };
 
-["dragenter", "dragover"].forEach((event) =>
-  dropArea.addEventListener(event, (e) => {
-    e.preventDefault();
-    dropArea.classList.add("dragover");
-  })
-);
+function sendFile(file) {
+  const r = new FileReader();
+  r.onload = () => {
+    const buf = r.result, chunk = 64*1024, total = Math.ceil(buf.byteLength/chunk);
+    for (let i = 0; i < total; i++) {
+      const slice = buf.slice(i*chunk, (i+1)*chunk);
+      dataChannel.send(JSON.stringify({type:"file",name:file.name,idx:i,total,data:Array.from(new Uint8Array(slice))}));
+      upd(file.name, ((i+1)/total)*100);
+    }
+    dataChannel.send(JSON.stringify({type:"done",name:file.name}));
+    logActivity(`📤 Sent ${file.name}`);
+    confetti();
+  };
+  r.readAsArrayBuffer(file);
+}
+function upd(name, p) {
+  const el = document.getElementById("pb-"+name);
+  if (el) el.style.width = p+"%";
+}
 
-["dragleave", "drop"].forEach((event) =>
-  dropArea.addEventListener(event, (e) => {
-    e.preventDefault();
-    dropArea.classList.remove("dragover");
-  })
-);
+// ===== RECEIVE =====
+function handleMsg(m) {
+  if (m.type==="chat") addChat("Peer", m.text);
+  if (m.type==="file") {
+    if (!receiveBuffer[m.name]) receiveBuffer[m.name] = [];
+    receiveBuffer[m.name][m.idx] = new Uint8Array(m.data);
+    upd(m.name, ((m.idx+1)/m.total)*100);
+  }
+  if (m.type==="done") {
+    const blob = new Blob(receiveBuffer[m.name]);
+    const url = URL.createObjectURL(blob);
+    showRecv(m.name, url);
+    logActivity(`📥 Got ${m.name}`);
+    confetti();
+  }
+}
+function showRecv(name,url){
+  const c=document.createElement("div");
+  c.className="file-card";
+  let prev="";
+  if(/\.(jpg|png|gif|jpeg|webp)$/i.test(name)) prev=`<img src="${url}" width="60">`;
+  else if(/\.pdf$/i.test(name)) prev=`<iframe src="${url}" width="80" height="60"></iframe>`;
+  else prev=`<div class="file-thumb">${name.split('.').pop()}</div>`;
+  c.innerHTML=`<div class="file-left">${prev}<div class="file-info"><div class="name">${name}</div></div></div>
+  <a href="${url}" download="${name}" class="btn">Download</a>`;
+  document.getElementById("receiveList").appendChild(c);
+}
 
-dropArea.addEventListener("drop", (e) => {
-  const file = e.dataTransfer.files[0];
-  if (!file) return;
-  fileInput.files = e.dataTransfer.files;
-  log(`📁 Dropped: ${file.name}`);
-  sendBtn.disabled = false;
-});
+// ===== CHAT =====
+chatSend.onclick = sendChat;
+chatInput.onkeypress = e => {
+  if(e.key==="Enter") sendChat();
+  else dataChannel?.send(JSON.stringify({type:"typing"}));
+};
+function sendChat(){
+  const msg=chatInput.value.trim(); if(!msg) return;
+  dataChannel.send(JSON.stringify({type:"chat",text:msg}));
+  addChat("You",msg); chatInput.value="";
+}
+function addChat(who,txt){
+  const p=document.createElement("p");
+  p.innerHTML=`<strong>${who}:</strong> ${txt}`;
+  chatLog.appendChild(p);
+  chatLog.scrollTop=chatLog.scrollHeight;
+}
+
+// ===== THEME & CONFETTI =====
+themeToggle.onclick = ()=>document.body.classList.toggle("light");
+function confetti(){
+  for(let i=0;i<15;i++){
+    const s=document.createElement("span");
+    s.textContent="🎉";
+    s.style.position="fixed";
+    s.style.left=Math.random()*100+"vw";
+    s.style.top="-10px";
+    s.style.fontSize="22px";
+    s.style.transition="top 2s";
+    document.body.appendChild(s);
+    setTimeout(()=>s.style.top="100vh",10);
+    setTimeout(()=>s.remove(),2000);
+  }
+}
+
+// ===== HELPERS =====
+function logActivity(m){
+  const p=document.createElement("p");
+  p.textContent=m;
+  logList.appendChild(p);
+  logList.scrollTop=logList.scrollHeight;
+}
+function showRoomLink(id){
+  const url=`${location.origin}?room=${id}`;
+  roomLink.textContent=url;
+  qrPanel.style.display="block";
+  new QRCode(qrcodeBox,{text:url,width:120,height:120});
+}
