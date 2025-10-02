@@ -1,8 +1,4 @@
-// app.js — DeepDrop Share
-// ✨ Professional P2P File Transfer via WebRTC + Socket.io + Auto Connect
-// 👨‍💻 Built by Deepak Kumar Saini
-
-/* ========== GLOBAL SETUP ========== */
+// app.js — DeepDrop Share (WebRTC + Socket.io)
 const socket = io();
 let pc = null;
 let dataChannel = null;
@@ -12,7 +8,7 @@ const config = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
-/* ========== UI ELEMENTS ========== */
+/* ======== UI ELEMENTS ======== */
 const roomInput = document.getElementById("roomInput");
 const createBtn = document.getElementById("createBtn");
 const joinBtn = document.getElementById("joinBtn");
@@ -25,12 +21,10 @@ const roomLinkEl = document.getElementById("roomLink");
 const fileInput = document.getElementById("fileInput");
 const pickFile = document.getElementById("pickFile");
 const sendBtn = document.getElementById("sendBtn");
-const dropArea = document.getElementById("dropArea");
-
 const receiveList = document.getElementById("receiveList");
 const logList = document.getElementById("logList");
 
-/* ========== LOG FUNCTION ========== */
+/* ======== LOG FUNCTION ======== */
 function log(msg) {
   const item = document.createElement("div");
   item.className = "item";
@@ -40,7 +34,7 @@ function log(msg) {
   console.log(msg);
 }
 
-/* ========== ROOM CREATION / JOIN ========== */
+/* ======== ROOM CREATION / JOIN ======== */
 createBtn.onclick = () => {
   const id = Math.random().toString(36).substring(2, 9);
   roomInput.value = id;
@@ -61,14 +55,14 @@ function joinRoom(id) {
   generateQR(id);
 }
 
-/* ========== COPY ROOM ID ========== */
+/* ======== COPY ROOM ID ======== */
 copyBtn.onclick = async () => {
   if (!currentRoom) return;
   await navigator.clipboard.writeText(currentRoom);
   log("📋 Room ID copied!");
 };
 
-/* ========== GENERATE QR ========== */
+/* ======== QR GENERATOR ======== */
 function generateQR(room) {
   const link = `${window.location.origin}?room=${room}&auto=1`;
   roomLinkEl.textContent = link;
@@ -89,7 +83,7 @@ qrBtn.onclick = () => {
   generateQR(currentRoom);
 };
 
-/* ========== AUTO JOIN FROM URL ========== */
+/* ======== AUTO JOIN VIA URL ======== */
 window.addEventListener("DOMContentLoaded", () => {
   const params = new URLSearchParams(window.location.search);
   const room = params.get("room");
@@ -101,11 +95,18 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-/* ========== SOCKET SIGNALING ========== */
+/* ======== SOCKET SIGNALING ======== */
 socket.on("room-members", (members) => {
   log(`👥 Room members: ${members.length}`);
-  if (members.length > 0) startAsCaller(members[0]);
-  else startAsReceiver();
+
+  const other = members.find((id) => id !== socket.id);
+  if (other) {
+    log(`📡 Found peer: ${other}, starting as caller...`);
+    startAsCaller(other);
+  } else {
+    log("🕓 Waiting for peer...");
+    startAsReceiver();
+  }
 });
 
 socket.on("signal", async (data) => {
@@ -128,7 +129,7 @@ socket.on("signal", async (data) => {
   }
 });
 
-/* ========== PEER CONNECTION ========== */
+/* ======== PEER CONNECTION ======== */
 function startAsCaller(target) {
   setupPeer(target, true);
 }
@@ -160,7 +161,7 @@ async function createOffer(targetId) {
   socket.emit("signal", { to: targetId, from: socket.id, signal: pc.localDescription });
 }
 
-/* ========== DATA CHANNEL ========== */
+/* ======== DATA CHANNEL ======== */
 function setupDataChannel(dc) {
   dataChannel = dc;
   dataChannel.binaryType = "arraybuffer";
@@ -206,7 +207,7 @@ function setupDataChannel(dc) {
   };
 }
 
-/* ========== SEND FILE ========== */
+/* ======== SEND FILE ======== */
 sendBtn.onclick = async () => {
   const file = fileInput.files[0];
   if (!file) return alert("Select a file first");
@@ -235,34 +236,8 @@ sendBtn.onclick = async () => {
   log("✅ File sent!");
 };
 
-/* ========== FILE PICKER & DRAG-DROP ========== */
+/* ======== FILE PICKER ======== */
 pickFile.onclick = () => fileInput.click();
-
 fileInput.onchange = () => {
-  if (fileInput.files.length) {
-    log(`📁 Selected: ${fileInput.files[0].name}`);
-    sendBtn.disabled = false;
-  }
+  sendBtn.disabled = !fileInput.files.length;
 };
-
-["dragenter", "dragover"].forEach((event) =>
-  dropArea.addEventListener(event, (e) => {
-    e.preventDefault();
-    dropArea.classList.add("dragover");
-  })
-);
-
-["dragleave", "drop"].forEach((event) =>
-  dropArea.addEventListener(event, (e) => {
-    e.preventDefault();
-    dropArea.classList.remove("dragover");
-  })
-);
-
-dropArea.addEventListener("drop", (e) => {
-  const file = e.dataTransfer.files[0];
-  if (!file) return;
-  fileInput.files = e.dataTransfer.files;
-  log(`📁 Dropped: ${file.name}`);
-  sendBtn.disabled = false;
-});
