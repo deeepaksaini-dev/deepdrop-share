@@ -1,4 +1,4 @@
-// app.js — DeepDrop Share (WebRTC + Socket.io)
+// app.js — DeepDrop Share (Fast P2P Connection)
 const socket = io();
 let pc = null;
 let dataChannel = null;
@@ -6,7 +6,19 @@ let currentRoom = null;
 
 const config = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  iceCandidatePoolSize: 10, // ⚡ Faster ICE gathering
 };
+
+/* ======== LOG FUNCTION WITH TIMESTAMP ======== */
+function log(msg) {
+  const time = new Date().toLocaleTimeString();
+  const item = document.createElement("div");
+  item.className = "item";
+  item.textContent = `[${time}] ${msg}`;
+  logList.appendChild(item);
+  logList.scrollTop = logList.scrollHeight;
+  console.log(`[${time}] ${msg}`);
+}
 
 /* ======== UI ELEMENTS ======== */
 const roomInput = document.getElementById("roomInput");
@@ -17,24 +29,13 @@ const copyBtn = document.getElementById("copyBtn");
 const qrBtn = document.getElementById("qrBtn");
 const qrPanel = document.getElementById("qrPanel");
 const roomLinkEl = document.getElementById("roomLink");
-
 const fileInput = document.getElementById("fileInput");
 const pickFile = document.getElementById("pickFile");
 const sendBtn = document.getElementById("sendBtn");
 const receiveList = document.getElementById("receiveList");
 const logList = document.getElementById("logList");
 
-/* ======== LOG FUNCTION ======== */
-function log(msg) {
-  const item = document.createElement("div");
-  item.className = "item";
-  item.textContent = msg;
-  logList.appendChild(item);
-  logList.scrollTop = logList.scrollHeight;
-  console.log(msg);
-}
-
-/* ======== ROOM CREATION / JOIN ======== */
+/* ======== ROOM CREATE / JOIN ======== */
 createBtn.onclick = () => {
   const id = Math.random().toString(36).substring(2, 9);
   roomInput.value = id;
@@ -55,14 +56,14 @@ function joinRoom(id) {
   generateQR(id);
 }
 
-/* ======== COPY ROOM ID ======== */
+/* ======== COPY ROOM ======== */
 copyBtn.onclick = async () => {
   if (!currentRoom) return;
   await navigator.clipboard.writeText(currentRoom);
   log("📋 Room ID copied!");
 };
 
-/* ======== QR GENERATOR ======== */
+/* ======== QR CODE ======== */
 function generateQR(room) {
   const link = `${window.location.origin}?room=${room}&auto=1`;
   roomLinkEl.textContent = link;
@@ -72,10 +73,10 @@ function generateQR(room) {
     text: link,
     width: 150,
     height: 150,
-    colorDark: "#000000",
-    colorLight: "#ffffff",
+    colorDark: "#000",
+    colorLight: "#fff",
   });
-  log("📱 QR ready — scan to auto-join!");
+  log("📱 QR ready — scan to join fast!");
 }
 
 qrBtn.onclick = () => {
@@ -83,7 +84,7 @@ qrBtn.onclick = () => {
   generateQR(currentRoom);
 };
 
-/* ======== AUTO JOIN VIA URL ======== */
+/* ======== AUTO JOIN ======== */
 window.addEventListener("DOMContentLoaded", () => {
   const params = new URLSearchParams(window.location.search);
   const room = params.get("room");
@@ -100,36 +101,43 @@ socket.on("room-members", (members) => {
   log(`👥 Room members: ${members.length}`);
 
   const other = members.find((id) => id !== socket.id);
-  if (other) {
+  if (other && !pc) {
     log(`📡 Found peer: ${other}, starting as caller...`);
     startAsCaller(other);
-  } else {
+  } else if (!other) {
     log("🕓 Waiting for peer...");
-    startAsReceiver();
   }
 });
 
 socket.on("signal", async (data) => {
   const { from, signal } = data;
-  if (!pc) startAsReceiver(from);
+  log(`📨 Signal received from ${from}`);
+
+  if (!pc) {
+    log("🔧 Creating peer as receiver...");
+    startAsReceiver(from);
+  }
 
   if (signal.type === "offer") {
+    log("📩 Received offer → sending answer...");
     await pc.setRemoteDescription(new RTCSessionDescription(signal));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     socket.emit("signal", { to: from, from: socket.id, signal: pc.localDescription });
   } else if (signal.type === "answer") {
+    log("📩 Received answer → set remote desc");
     await pc.setRemoteDescription(new RTCSessionDescription(signal));
   } else if (signal.candidate) {
     try {
       await pc.addIceCandidate(signal);
+      log("🧊 ICE candidate added");
     } catch (e) {
-      console.warn("ICE error:", e);
+      console.warn("⚠️ ICE error:", e);
     }
   }
 });
 
-/* ======== PEER CONNECTION ======== */
+/* ======== PEER SETUP ======== */
 function startAsCaller(target) {
   setupPeer(target, true);
 }
@@ -146,6 +154,10 @@ function setupPeer(targetId, isCaller) {
     }
   };
 
+  pc.oniceconnectionstatechange = () => {
+    log(`🛰 ICE state: ${pc.iceConnectionState}`);
+  };
+
   pc.ondatachannel = (e) => setupDataChannel(e.channel);
 
   if (isCaller) {
@@ -156,9 +168,10 @@ function setupPeer(targetId, isCaller) {
 }
 
 async function createOffer(targetId) {
-  const offer = await pc.createOffer();
+  const offer = await pc.createOffer({ offerToReceiveAudio: false, offerToReceiveVideo: false });
   await pc.setLocalDescription(offer);
   socket.emit("signal", { to: targetId, from: socket.id, signal: pc.localDescription });
+  log("📤 Offer sent fast!");
 }
 
 /* ======== DATA CHANNEL ======== */
@@ -167,7 +180,7 @@ function setupDataChannel(dc) {
   dataChannel.binaryType = "arraybuffer";
 
   dataChannel.onopen = () => {
-    log("✅ Connection established! Ready to transfer.");
+    log("✅ Connection established instantly!");
     sendBtn.disabled = false;
   };
 
@@ -227,9 +240,9 @@ sendBtn.onclick = async () => {
     sent += value.byteLength;
     const pct = ((sent / file.size) * 100).toFixed(1);
     log(`📤 Uploading... ${pct}%`);
-    while (dataChannel.bufferedAmount > 256 * 1024) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
+    // ⚡ minimal wait for smoothness
+    if (dataChannel.bufferedAmount > 512 * 1024)
+      await new Promise((r) => setTimeout(r, 10));
   }
 
   dataChannel.send(JSON.stringify({ type: "done" }));
