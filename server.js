@@ -1,41 +1,32 @@
-// =========================
-// DeepDrop Share Server
-// =========================
 const express = require("express");
 const app = express();
 const http = require("http").createServer(app);
-const { Server } = require("socket.io");
-const io = new Server(http);
+const io = require("socket.io")(http);
+
 const PORT = process.env.PORT || 3000;
 
-// Serve static files (index.html, app.js, etc)
+// Serve static files
 app.use(express.static(__dirname));
 
-// Default route
+// Routes
 app.get("/", (req, res) => {
   res.sendFile(__dirname + "/index.html");
 });
 
-// =============== SOCKET.IO HANDLING ===============
+// Socket.io logic
 io.on("connection", (socket) => {
-  console.log("🟢 New client connected:", socket.id);
+  console.log("🟢 Client connected:", socket.id);
 
-  // Join room
-  socket.on("join-room", (roomId) => {
-    socket.join(roomId);
-    console.log(`👥 ${socket.id} joined room: ${roomId}`);
-    io.to(socket.id).emit("room-joined", roomId);
-
-    // Notify others
-    const members = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
-    io.to(roomId).emit("room-members", members);
+  socket.on("create-or-join", (room) => {
+    const clients = io.sockets.adapter.rooms.get(room) || new Set();
+    socket.join(room);
+    const members = Array.from(clients);
+    io.to(room).emit("room-members", members);
+    console.log(`📦 Room ${room}:`, members);
   });
 
-  // Signal exchange (offer, answer, candidate)
   socket.on("signal", (data) => {
-    const { room, type } = data;
-    console.log(`📡 Signal: ${type} in room: ${room}`);
-    socket.to(room).emit("signal", data);
+    io.to(data.to).emit("signal", data);
   });
 
   socket.on("disconnect", () => {
@@ -43,7 +34,6 @@ io.on("connection", (socket) => {
   });
 });
 
-// Start server
 http.listen(PORT, () => {
-  console.log(`🚀 DeepDrop server running on: http://localhost:${PORT}`);
+  console.log(`🚀 DeepDrop Share running on http://localhost:${PORT}`);
 });
