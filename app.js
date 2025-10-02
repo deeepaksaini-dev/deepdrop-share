@@ -1,21 +1,19 @@
-// ===== GLOBALS =====
+// ========== GLOBALS ==========
 const socket = io();
 let pc, dataChannel;
 let roomId = null, isCreator = false;
 let filesQueue = [], receiveBuffer = {};
 
-// UI refs
+// ========== UI ==========
 const roomInput = document.getElementById("roomInput");
 const roomIdBox = document.getElementById("roomId");
 const createBtn = document.getElementById("createBtn");
 const joinBtn = document.getElementById("joinBtn");
 const pickFileBtn = document.getElementById("pickFile");
 const sendBtn = document.getElementById("sendBtn");
-const fileInput = document.getElementById("fileInput") || (() => {
-  let i = document.createElement("input");
-  i.type = "file"; i.multiple = true; i.style.display = "none";
-  document.body.appendChild(i); return i;
-})();
+const fileInput = document.createElement("input");
+fileInput.type = "file"; fileInput.multiple = true; fileInput.style.display = "none";
+document.body.appendChild(fileInput);
 const filesArea = document.getElementById("filesArea");
 const dropArea = document.getElementById("dropArea");
 const chatInput = document.getElementById("chatInput");
@@ -25,197 +23,195 @@ const logList = document.getElementById("logList");
 const qrPanel = document.getElementById("qrPanel");
 const qrcodeBox = document.getElementById("qrcode");
 const roomLink = document.getElementById("roomLink");
-const themeToggle = document.getElementById("themeToggle");
 
-// ===== ROOM JOIN =====
+// ========== ROOM CREATE / JOIN ==========
 createBtn.onclick = () => {
   const id = roomInput.value || Math.random().toString(36).substr(2, 6);
   roomId = id;
   isCreator = true;
-  joinRoom(id);
+  socket.emit("join-room", roomId);
 };
 joinBtn.onclick = () => {
   const id = roomInput.value.trim();
-  if (!id) return alert("Enter room id");
+  if (!id) return alert("Enter a valid room ID");
   roomId = id;
-  joinRoom(id);
+  socket.emit("join-room", roomId);
 };
 
-// Auto-join by link
-const p = new URLSearchParams(location.search);
-if (p.get("room")) {
-  roomId = p.get("room");
-  joinRoom(roomId);
+// Auto join by link
+const params = new URLSearchParams(window.location.search);
+if (params.get("room")) {
+  roomId = params.get("room");
+  socket.emit("join-room", roomId);
 }
 
-// ===== SOCKET =====
-function joinRoom(id) {
-  socket.emit("create-or-join", id);
-  roomIdBox.textContent = id;
-  showRoomLink(id);
-  initPeer();
-}
-socket.on("room-members", m => logActivity(`👥 Members: ${m.length}`));
+// Room joined confirmation
+socket.on("room-joined", id => {
+  roomId = id;
+  logActivity(`✅ Joined room: ${roomId}`);
+  roomIdBox.textContent = roomId;
+  showRoomLink(roomId);
+  initPeer(); // Initialize Peer only after joining
+});
+
+// ========== SOCKET SIGNALING ==========
 socket.on("signal", async data => {
-  if (data.offer && !isCreator) {
+  if (data.type === "offer" && !isCreator) {
     await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-    const ans = await pc.createAnswer();
-    await pc.setLocalDescription(ans);
-    socket.emit("signal", { to: roomId, answer: ans });
-  } else if (data.answer && isCreator) {
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit("signal", { room: roomId, type: "answer", answer });
+  }
+  else if (data.type === "answer" && isCreator) {
     await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-  } else if (data.candidate) {
+  }
+  else if (data.type === "candidate") {
     await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
   }
 });
 
-// ===== PEER =====
+// ========== PEER CONNECTION ==========
 function initPeer() {
   pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-  dataChannel = pc.createDataChannel("channel");
-  setupDC(dataChannel);
-  pc.ondatachannel = e => setupDC(e.channel);
-  pc.onicecandidate = e => e.candidate && socket.emit("signal", { to: roomId, candidate: e.candidate });
+
   if (isCreator) {
-    pc.createOffer().then(o => {
-      pc.setLocalDescription(o);
-      socket.emit("signal", { to: roomId, offer: o });
+    dataChannel = pc.createDataChannel("data");
+    setupDataChannel(dataChannel);
+  } else {
+    pc.ondatachannel = e => setupDataChannel(e.channel);
+  }
+
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      socket.emit("signal", { room: roomId, type: "candidate", candidate: e.candidate });
+    }
+  };
+
+  if (isCreator) {
+    pc.createOffer().then(offer => {
+      pc.setLocalDescription(offer);
+      socket.emit("signal", { room: roomId, type: "offer", offer });
     });
   }
 }
 
-function setupDC(dc) {
-  dc.onopen = () => logActivity("📡 Connected");
-  dc.onmessage = e => handleMsg(JSON.parse(e.data));
+function setupDataChannel(channel) {
+  dataChannel = channel;
+  dataChannel.onopen = () => logActivity("📡 DataChannel open — Connection Established!");
+  dataChannel.onmessage = e => handleMessage(JSON.parse(e.data));
 }
 
-// ===== FILE SELECT =====
+// ========== FILE HANDLING ==========
 pickFileBtn.onclick = () => fileInput.click();
-fileInput.onchange = e => addFiles(e.target.files);
+fileInput.onchange = e => handleFiles(e.target.files);
 
 dropArea.ondragover = e => { e.preventDefault(); dropArea.classList.add("hover"); };
 dropArea.ondragleave = () => dropArea.classList.remove("hover");
 dropArea.ondrop = e => {
   e.preventDefault(); dropArea.classList.remove("hover");
-  addFiles(e.dataTransfer.files);
+  handleFiles(e.dataTransfer.files);
 };
 
-function addFiles(list) {
-  for (let f of list) {
+function handleFiles(fileList) {
+  for (let f of fileList) {
     filesQueue.push(f);
-    makeFileCard(f);
+    createFileCard(f);
   }
   if (filesQueue.length) sendBtn.disabled = false;
 }
-function makeFileCard(f) {
+
+function createFileCard(f) {
   const c = document.createElement("div");
   c.className = "file-card";
   c.innerHTML = `
-    <div class="file-left">
-      <div class="file-thumb">${f.name.split('.').pop().toUpperCase()}</div>
-      <div class="file-info"><div class="name">${f.name}</div><div class="small-muted">${(f.size/1048576).toFixed(2)} MB</div></div>
-    </div>
-    <div class="progress-track"><div class="progress-bar" id="pb-${f.name}"></div></div>`;
+    <div>
+      <div class="file-info"><strong>${f.name}</strong></div>
+      <div class="small-muted">${(f.size/1024/1024).toFixed(2)} MB</div>
+      <div class="progress-track"><div class="progress-bar" id="pb-${f.name}"></div></div>
+    </div>`;
   filesArea.appendChild(c);
 }
+
 sendBtn.onclick = () => {
-  filesQueue.forEach(f => sendFile(f));
-  filesQueue = []; sendBtn.disabled = true;
+  filesQueue.forEach(sendFile);
+  filesQueue = [];
+  sendBtn.disabled = true;
 };
 
 function sendFile(file) {
-  const r = new FileReader();
-  r.onload = () => {
-    const buf = r.result, chunk = 64*1024, total = Math.ceil(buf.byteLength/chunk);
+  const reader = new FileReader();
+  reader.onload = () => {
+    const buffer = reader.result;
+    const CHUNK = 64 * 1024;
+    const total = Math.ceil(buffer.byteLength / CHUNK);
     for (let i = 0; i < total; i++) {
-      const slice = buf.slice(i*chunk, (i+1)*chunk);
-      dataChannel.send(JSON.stringify({type:"file",name:file.name,idx:i,total,data:Array.from(new Uint8Array(slice))}));
-      upd(file.name, ((i+1)/total)*100);
+      const chunk = buffer.slice(i * CHUNK, (i + 1) * CHUNK);
+      dataChannel.send(JSON.stringify({
+        type: "file-chunk",
+        name: file.name,
+        index: i,
+        total,
+        data: Array.from(new Uint8Array(chunk))
+      }));
+      updateProgress(file.name, ((i + 1) / total) * 100);
     }
-    dataChannel.send(JSON.stringify({type:"done",name:file.name}));
-    logActivity(`📤 Sent ${file.name}`);
-    confetti();
+    dataChannel.send(JSON.stringify({ type: "file-complete", name: file.name }));
+    logActivity(`📤 Sent file: ${file.name}`);
   };
-  r.readAsArrayBuffer(file);
-}
-function upd(name, p) {
-  const el = document.getElementById("pb-"+name);
-  if (el) el.style.width = p+"%";
+  reader.readAsArrayBuffer(file);
 }
 
-// ===== RECEIVE =====
-function handleMsg(m) {
-  if (m.type==="chat") addChat("Peer", m.text);
-  if (m.type==="file") {
-    if (!receiveBuffer[m.name]) receiveBuffer[m.name] = [];
-    receiveBuffer[m.name][m.idx] = new Uint8Array(m.data);
-    upd(m.name, ((m.idx+1)/m.total)*100);
+function updateProgress(name, p) {
+  const bar = document.getElementById("pb-" + name);
+  if (bar) bar.style.width = p + "%";
+}
+
+// ========== RECEIVE FILE ==========
+function handleMessage(msg) {
+  if (msg.type === "chat") addChat("Peer", msg.text);
+  if (msg.type === "file-chunk") {
+    if (!receiveBuffer[msg.name]) receiveBuffer[msg.name] = [];
+    receiveBuffer[msg.name][msg.index] = new Uint8Array(msg.data);
+    updateProgress(msg.name, ((msg.index + 1) / msg.total) * 100);
   }
-  if (m.type==="done") {
-    const blob = new Blob(receiveBuffer[m.name]);
+  if (msg.type === "file-complete") {
+    const blob = new Blob(receiveBuffer[msg.name]);
     const url = URL.createObjectURL(blob);
-    showRecv(m.name, url);
-    logActivity(`📥 Got ${m.name}`);
-    confetti();
+    const a = document.createElement("a");
+    a.href = url; a.download = msg.name;
+    a.textContent = `📥 Download ${msg.name}`;
+    filesArea.appendChild(a);
+    logActivity(`✅ Received file: ${msg.name}`);
   }
 }
-function showRecv(name,url){
-  const c=document.createElement("div");
-  c.className="file-card";
-  let prev="";
-  if(/\.(jpg|png|gif|jpeg|webp)$/i.test(name)) prev=`<img src="${url}" width="60">`;
-  else if(/\.pdf$/i.test(name)) prev=`<iframe src="${url}" width="80" height="60"></iframe>`;
-  else prev=`<div class="file-thumb">${name.split('.').pop()}</div>`;
-  c.innerHTML=`<div class="file-left">${prev}<div class="file-info"><div class="name">${name}</div></div></div>
-  <a href="${url}" download="${name}" class="btn">Download</a>`;
-  document.getElementById("receiveList").appendChild(c);
-}
 
-// ===== CHAT =====
+// ========== CHAT ==========
 chatSend.onclick = sendChat;
-chatInput.onkeypress = e => {
-  if(e.key==="Enter") sendChat();
-  else dataChannel?.send(JSON.stringify({type:"typing"}));
-};
-function sendChat(){
-  const msg=chatInput.value.trim(); if(!msg) return;
-  dataChannel.send(JSON.stringify({type:"chat",text:msg}));
-  addChat("You",msg); chatInput.value="";
+chatInput.onkeypress = e => { if (e.key === "Enter") sendChat(); };
+
+function sendChat() {
+  const msg = chatInput.value.trim();
+  if (!msg) return;
+  dataChannel.send(JSON.stringify({ type: "chat", text: msg }));
+  addChat("You", msg);
+  chatInput.value = "";
 }
-function addChat(who,txt){
-  const p=document.createElement("p");
-  p.innerHTML=`<strong>${who}:</strong> ${txt}`;
+function addChat(who, txt) {
+  const p = document.createElement("p");
+  p.innerHTML = `<strong>${who}:</strong> ${txt}`;
   chatLog.appendChild(p);
-  chatLog.scrollTop=chatLog.scrollHeight;
 }
 
-// ===== THEME & CONFETTI =====
-themeToggle.onclick = ()=>document.body.classList.toggle("light");
-function confetti(){
-  for(let i=0;i<15;i++){
-    const s=document.createElement("span");
-    s.textContent="🎉";
-    s.style.position="fixed";
-    s.style.left=Math.random()*100+"vw";
-    s.style.top="-10px";
-    s.style.fontSize="22px";
-    s.style.transition="top 2s";
-    document.body.appendChild(s);
-    setTimeout(()=>s.style.top="100vh",10);
-    setTimeout(()=>s.remove(),2000);
-  }
-}
-
-// ===== HELPERS =====
-function logActivity(m){
-  const p=document.createElement("p");
-  p.textContent=m;
+// ========== UTIL ==========
+function logActivity(msg) {
+  const p = document.createElement("p");
+  p.textContent = msg;
   logList.appendChild(p);
-  logList.scrollTop=logList.scrollHeight;
+  logList.scrollTop = logList.scrollHeight;
 }
-function showRoomLink(id){
-  const url=`${location.origin}?room=${id}`;
-  roomLink.textContent=url;
-  qrPanel.style.display="block";
-  new QRCode(qrcodeBox,{text:url,width:120,height:120});
+function showRoomLink(id) {
+  const url = `${location.origin}?room=${id}`;
+  roomLink.textContent = url;
+  qrPanel.style.display = "block";
+  new QRCode(qrcodeBox, { text: url, width: 120, height: 120 });
 }
