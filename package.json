@@ -1,0 +1,13 @@
+{
+  "name": "deepdrop-share",
+  "version": "1.0.0",
+  "description": "FilePizza-like P2P file transfer (DeepDrop Share)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  }
+}

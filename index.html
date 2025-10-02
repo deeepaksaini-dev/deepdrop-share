@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DeepDrop Share — P2P File Transfer</title>
+
+  <!-- Fonts & icons -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Poppins:wght@600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="script.css">
+
+  <!-- Meta for nice mobile theme -->
+  <meta name="theme-color" content="#0f172a">
+</head>
+<body>
+  <main class="shell">
+
+    <!-- NAV / TOP -->
+    <nav class="nav">
+      <div class="brand">
+        <div class="logo">⤓</div>
+        <div class="brand-text">
+          <div class="title">DeepDrop Share</div>
+          <div class="subtitle">Fast • Secure • Peer-to-Peer</div>
+        </div>
+      </div>
+
+      <div class="nav-actions">
+        <div class="room-box">
+          <div id="roomId" class="room-id">—</div>
+          <button id="copyBtn" class="btn ghost">Copy</button>
+          <button id="qrBtn" class="btn ghost">QR</button>
+        </div>
+      </div>
+    </nav>
+
+    <!-- MAIN GRID -->
+    <section class="layout">
+
+      <!-- LEFT: Hero + Drop -->
+      <section class="left">
+        <div class="hero">
+          <h1>Share files instantly — no cloud, no uploads</h1>
+          <p class="lead">Peer-to-peer transfer with WebRTC. Create a room, share QR or link, receiver downloads directly.</p>
+
+          <div id="dropArea" class="dropcard">
+            <div class="drop-inner">
+              <svg class="cloud-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19 18H6a4 4 0 0 1 0-8 6 6 0 1 1 12 1.5A3.5 3.5 0 0 1 19 18z"/></svg>
+              <h2>Drop files here</h2>
+              <p class="muted">Or click to pick. Files stream directly to peer — private & fast.</p>
+
+              <input id="fileInput" type="file" hidden>
+              <div class="drop-actions">
+                <button id="pickFile" class="btn primary large">Choose file</button>
+                <button id="sendBtn" class="btn accent large" disabled>Send</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="tips">
+            <div>Tip: Create a room and scan the QR on the right to join from another device.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT: Controls + QR + Activity -->
+      <aside class="right">
+
+        <!-- Room controls -->
+        <div class="card control-card">
+          <div class="control-row">
+            <input id="roomInput" class="input" placeholder="Enter or create room id" />
+            <div class="control-buttons">
+              <button id="createBtn" class="btn outline">Create</button>
+              <button id="joinBtn" class="btn outline">Join</button>
+            </div>
+          </div>
+
+          <div id="qrPanel" class="qr-panel hidden">
+            <div class="qr-title">Scan to join</div>
+            <div id="qrcode" class="qrcode-box" aria-hidden="false"></div>
+            <div class="qr-link">Or share: <span id="roomLink" class="mono"></span></div>
+          </div>
+        </div>
+
+        <!-- Receive list -->
+        <div class="card receive-card">
+          <div class="card-head">📥 Received</div>
+          <div id="receiveList" class="receive-list">
+            <!-- downloaded file anchors will appear -->
+          </div>
+        </div>
+
+        <!-- Activity feed -->
+        <div class="card activity-card">
+          <div class="card-head">Activity</div>
+          <div id="logList" class="activity-list">
+            <!-- logs -->
+          </div>
+        </div>
+
+        <!-- Footer credit -->
+        <div class="credit">
+          <div>Made with ❤️ by <strong>Deepak Kumar Saini</strong></div>
+          <small class="muted">WebRTC • Socket.io • No server storage</small>
+        </div>
+
+      </aside>
+    </section>
+  </main>
+
+  <!-- Scripts -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
+
